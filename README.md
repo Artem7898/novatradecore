@@ -40,7 +40,7 @@
 ### 1. Клонирование и настройка окружения
 
 ```bash
-git clone <ссылка-на-репозиторий>
+git clone https://github.com/Artem7898/novatradecore
 cd novatradecore
 cp .env.example .env
 ```

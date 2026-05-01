@@ -200,6 +200,7 @@ This keeps psycopg3 connection pools alive and avoids reconnects under load.
 
 **Proprietary** — all rights reserved.
 #### The author of the project is Artem Alimpiev
+#### https://orcid.org/0009-0007-6740-7242
 
 This software is for authorized use only. Redistribution or reverse engineering is prohibited.
 

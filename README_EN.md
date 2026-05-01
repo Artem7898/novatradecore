@@ -40,7 +40,7 @@ All services (PostgreSQL, Redis, Grafana, Uvicorn) are orchestrated with Docker 
 ### 1. Clone & Environment
 
 ```bash
-git clone <your-repo-link>
+git clone https://github.com/Artem7898/novatradecore
 cd novatradecore
 cp .env.example .env
 ```

@@ -1,0 +1,1 @@
+from config.settings.development import *  # noqa: F401, F403

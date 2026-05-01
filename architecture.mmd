@@ -1,0 +1,29 @@
+graph TD
+    subgraph "Data Streams"
+        A[Solana RPC WS] --> D
+        B[Binance WS] --> D
+    end
+
+    subgraph "Django Nova Core"
+        D[NovaTask: Async Normalizer] --> E[Pydantic v2 Validator]
+        E --> F[API Router + slowapi]
+        F --> G[Dependency Injector]
+        G --> H[Risk Engine Service]
+        G --> I[Cache Manager]
+    end
+
+    subgraph "Data Layer"
+        H --> J[(PostgreSQL 500M+ Rows)]
+        I --> K[(Redis: Smart Cache)]
+        J -. CONCURRENTLY .-> L[Hot Migrations]
+    end
+
+    subgraph "Clients & Tooling"
+        F --> M[OpenAPI Schema]
+        M -->|Auto-generation| N[TypeScript Frontend]
+        F -->|WebSocket| O[Risk Alerts WS]
+    end
+
+    style D fill:#f9f,stroke:#333,stroke-width:2px
+    style J fill:#ff9,stroke:#333,stroke-width:4px
+    style K fill:#9ff,stroke:#333,stroke-width:2px

@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: nova_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: novatrade
+      POSTGRES_USER: nova
+      POSTGRES_PASSWORD: nova_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nova"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nova_network
+
+  web:
+    build: .
+    container_name: nova_web
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - static_data:/app/staticfiles
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: >
+      uvicorn config.asgi:application
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    networks:
+      - nova_network
+
+  # ==========================================
+  # ДОБАВЛЕННАЯ GRAFANA
+  # ==========================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: nova_grafana
+    restart: always
+    ports:
+      - "3000:3000" # Порт веб-интерфейса
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Пароль админа (логин всегда admin)
+    volumes:
+      - grafana_data:/var/lib/grafana # Сохраняем настройки дашбордов при перезапуске
+    networks:
+      - nova_network
+
+# Том для данных Grafana
+volumes:
+  postgres_data:
+  static_data:
+  grafana_data:
+
+networks:
+  nova_network:
+    driver: bridge

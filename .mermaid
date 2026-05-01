@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant WS as Binance / Solana WS
+    participant API as Django ASGI (Uvicorn)
+    participant Pydantic as Pydantic v2 Validator
+    participant Svc as Risk Engine Service
+    participant DB as PostgreSQL (psycopg3)
+    participant Monitor as Grafana
+
+    WS->>API: POST /api/v1/trades/ingest/
+    API->>Pydantic: Parse & Strict Validate
+    Pydantic-->>API: Validated TradeSchema
+    API->>Svc: assess_trade_risk()
+    Svc->>Svc: Decimal Math (P&L / AML Check)
+    Svc-->>API: RiskAssessment (Score, Reason)
+    API->>DB: await Trade.objects.acreate()
+    DB-->>Monitor: Raw SQL Metrics
+    API-->>WS: 201 Created (TradeSchemaOut)

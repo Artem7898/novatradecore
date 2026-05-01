@@ -1,0 +1,23 @@
+Metadata-Version: 2.4
+Name: novatradecore
+Version: 1.0.0
+Summary: NovaTradeCore — Высокочастотная крипто-риск платформа
+Author-email: Artem Alimpiev <alimpievne@gmail.com>
+Requires-Python: <4.0,>=3.12
+Requires-Dist: Django==5.0.7
+Requires-Dist: django-nova==0.1.0
+Requires-Dist: uvicorn[standard]==0.30.1
+Requires-Dist: pydantic<3.0.0,>=2.8.2
+Requires-Dist: pydantic-settings>=2.5.2
+Requires-Dist: sqlmodel==0.0.19
+Requires-Dist: psycopg[binary,pool]==3.1.19
+Requires-Dist: redis==5.0.7
+Requires-Dist: PyJWT==2.8.0
+Requires-Dist: slowapi==0.1.9
+Requires-Dist: structlog==24.2.0
+Provides-Extra: dev
+Requires-Dist: pytest==8.2.2; extra == "dev"
+Requires-Dist: pytest-asyncio==0.23.7; extra == "dev"
+Requires-Dist: httpx==0.27.0; extra == "dev"
+Requires-Dist: pyright==1.1.371; extra == "dev"
+Requires-Dist: ruff==0.5.0; extra == "dev"

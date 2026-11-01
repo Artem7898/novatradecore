@@ -1,5 +1,5 @@
-from trades.services.risk_engine import RiskEngineService
+from trades.services.ingest_trade import IngestTradeService
 
-# В реальном django-nova это делает контейнер, здесь используем простую фабрику
-def get_risk_service() -> RiskEngineService:
-    return RiskEngineService()
+
+def get_ingest_service() -> IngestTradeService:
+    return IngestTradeService()

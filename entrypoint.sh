@@ -1,20 +1,9 @@
 #!/bin/sh
+set -eu
 
-set -e
+if [ "${WAIT_FOR_DATABASE:-1}" = "1" ]; then
+    python /app/scripts/wait_for_database.py
+fi
 
-echo "⏳ Waiting for PostgreSQL..."
-
-until pg_isready -h "$DATABASE_HOST" -p "$DATABASE_PORT" -U "$DATABASE_USER"; do
-  sleep 2
-done
-
-echo "✅ PostgreSQL is ready"
-
-echo "🚀 Applying migrations..."
-python manage.py migrate --noinput
-
-echo "📦 Collecting static..."
-python manage.py collectstatic --noinput || true
-
-echo "🔥 Starting app..."
+# Migrations and collectstatic are explicit release steps (make release).
 exec "$@"

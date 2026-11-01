@@ -1,71 +1,78 @@
+"""Invalid requests are rejected at the public boundary before persistence."""
+
+import json
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from decimal import Decimal
-from httpx import AsyncClient, ASGITransport
-from pydantic import ValidationError
+from django.db import OperationalError
+from django.test import AsyncClient
 
-# Импорты зависят от структуры проекта
-from schemas.trades import TradeSchemaIn, RiskAssessment
-from services.risk_engine import RiskEngineService, RiskCalculationError
+URL = "/api/v1/trades/ingest/"
 
 
-@pytest.mark.asyncio
-async def test_trade_schema_validation_strict():
-    """Проверяем, что Pydantic v2 в strict mode отсекает кривые типы"""
-    with pytest.raises(ValidationError):
-        # Передаем float вместо строки Decimal (в strict mode вызовет ошибку)
-        TradeSchemaIn(
-            symbol="BTC/USDT",
-            side="BUY",
-            price=50000.50,  # type: ignore
-            quantity="1.5",
-            exchange_id="binance",
-            trade_id="123",
-        )
+async def test_missing_authorization_is_rejected(trade_payload: dict[str, str]) -> None:
+    response = await AsyncClient().post(URL, trade_payload, content_type="application/json")
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
-@pytest.mark.asyncio
-async def test_risk_service_high_volume():
-    """Тест сервисного слоя: большая сделка должна быть high risk"""
-    service = RiskEngineService()
-    trade = TradeSchemaIn(
-        symbol="SOL/USDT",
-        side="SELL",
-        price=Decimal("200.00"),
-        quantity=Decimal("10000.00"),  # 2,000,000 USD
-        exchange_id="solana_rpc",
-        trade_id="tx_high_risk",
+async def test_authentication_precedes_payload_validation() -> None:
+    response = await AsyncClient().post(URL, "{", content_type="application/json")
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("body", ["{", "null", "[]", "true", '"string"'])
+async def test_malformed_or_nonobject_json_is_422(body: str, auth_headers: dict[str, str]) -> None:
+    response = await AsyncClient().post(URL, body, content_type="application/json", headers=auth_headers)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("price", "-1"),
+        ("quantity", "0"),
+        ("price", "NaN"),
+        ("price", "1e1000000"),
+        ("quantity", "0.0000000001"),
+        ("price", 1.5),
+        ("symbol", "SOL/BTC"),
+        ("trade_id", " "),
+    ],
+)
+async def test_invalid_trade_is_422_before_persistence(
+    trade_payload: dict[str, str],
+    auth_headers: dict[str, str],
+    field: str,
+    value: object,
+) -> None:
+    # Database access is forbidden for this test: returning 422 must need no storage.
+    response = await AsyncClient().post(
+        URL,
+        json.dumps({**trade_payload, field: value}),
+        content_type="application/json",
+        headers=auth_headers,
     )
-
-    risk = await service.assess_trade_risk(trade)
-
-    assert risk.is_high_risk is True
-    assert risk.risk_score >= Decimal("50.0")
-    assert "Large trade volume" in risk.reason
+    assert response.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_ingest_endpoint_success(app):
-    """Интеграционный тест эндпоинта без Celery (Mock Hintergrund)"""
-    transport = ASGITransport(app=app)
-    headers = {"Authorization": "Bearer valid_mock_token"}
+async def test_database_error_is_503_without_leaking_details(
+    trade_payload: dict[str, str],
+    auth_headers: dict[str, str],
+) -> None:
+    service = Mock()
+    service.ingest = AsyncMock(side_effect=OperationalError("password=private-database-secret"))
+    with patch("trades.api.v1.get_ingest_service", return_value=service):
+        response = await AsyncClient().post(URL, trade_payload, content_type="application/json", headers=auth_headers)
+    assert response.status_code == 503
+    assert "private-database-secret" not in response.content.decode()
 
-    payload = {
-        "symbol": "ETH/USDT",
-        "side": "BUY",
-        "price": "3000.00",
-        "quantity": "1.0",
-        "exchange_id": "binance",
-        "trade_id": "tx_123",
-    }
 
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post(
-            "/api/v1/trades/ingest/", json=payload, headers=headers
-        )
+async def test_only_post_is_allowed(auth_headers: dict[str, str]) -> None:
+    response = await AsyncClient().get(URL, headers=auth_headers)
+    assert response.status_code == 405
 
-    assert response.status_code == 201
-    data = response.json()
-    assert data["symbol"] == "ETH/USDT"
-    assert data["risk"]["is_high_risk"] is False
-    # Проверяем, что Decimal не превратился в float (строго строка или число без потерь)
-    assert data["price"] == "3000.00" or data["price"] == 3000.00
+
+async def test_liveness_needs_no_database() -> None:
+    response = await AsyncClient().get("/health/live/")
+    assert response.status_code == 200

@@ -2,11 +2,11 @@
 
 import uuid
 from decimal import Decimal
+
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = []
@@ -32,15 +32,11 @@ class Migration(migrations.Migration):
                 ("trade_id", models.CharField(max_length=100, unique=True)),
                 (
                     "pnl",
-                    models.DecimalField(
-                        blank=True, decimal_places=9, max_digits=20, null=True
-                    ),
+                    models.DecimalField(blank=True, decimal_places=9, max_digits=20, null=True),
                 ),
                 (
                     "risk_score",
-                    models.DecimalField(
-                        decimal_places=2, default=Decimal("0.0"), max_digits=5
-                    ),
+                    models.DecimalField(decimal_places=2, default=Decimal("0.0"), max_digits=5),
                 ),
                 ("is_high_risk", models.BooleanField(default=False)),
                 ("created_at", models.DateTimeField(auto_now_add=True, db_index=True)),

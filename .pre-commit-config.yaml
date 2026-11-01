@@ -1,0 +1,22 @@
+minimum_pre_commit_version: "4.3.0"
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright (locked uv environment)
+        entry: uv run --frozen pyright
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: migrations
+        name: check Django migration state
+        entry: uv run --frozen python manage.py makemigrations --check --dry-run --settings=config.settings.test
+        language: system
+        pass_filenames: false
+        types: [python]

@@ -6,12 +6,11 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ('trades', '0001_initial'),
+        ("trades", "0001_initial"),
     ]
 
-
     def upgrade(self, apps, schema_editor) -> None:
-        if schema_editor.connection.vendor != 'postgresql':
+        if schema_editor.connection.vendor != "postgresql":
             return
 
         with schema_editor.connection.cursor() as cursor:
@@ -23,7 +22,6 @@ class Migration(migrations.Migration):
                 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_trades_exchange_id 
                 ON trades_trade (exchange_id);
             """)
-
 
     def downgrade(self, apps, schema_editor) -> None:
         with schema_editor.connection.cursor() as cursor:

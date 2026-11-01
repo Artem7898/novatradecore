@@ -1,37 +1,24 @@
-import structlog
-from decimal import Decimal, InvalidOperation
+"""Deterministic risk rules for supported USD-denominated quote markets."""
+
+from decimal import Decimal
+
+from trades.domain.money import calculate_notional
 from trades.schemas.requests import TradeSchemaIn
 from trades.schemas.responses import RiskAssessmentOut
 
-logger = structlog.get_logger(__name__)
 
 class RiskEngineService:
-    MAX_SINGLE_TRADE_USD = Decimal("1000000.00")
+    """Score nominal quote amounts; this service is not an FX oracle."""
 
-    async def assess_trade_risk(self, trade: TradeSchemaIn) -> RiskAssessmentOut:
-        log = logger.bind(symbol=trade.symbol, exchange=trade.exchange_id)
-        try:
-            price = Decimal(trade.price)
-            quantity = Decimal(trade.quantity)
-            trade_volume_usd = price * quantity
-            
-            score = Decimal("0.0")
-            reason: str | None = None
+    MAX_SINGLE_TRADE_NOTIONAL = Decimal("1000000")
 
-            if trade_volume_usd > self.MAX_SINGLE_TRADE_USD:
-                score += Decimal("60.0")
-                reason = "Large trade volume"
-            
-            if quantity > Decimal("10000.00"):
-                score += Decimal("40.0")
-                reason = f"{reason}; Suspicious qty" if reason else "Suspicious qty"
-
-            is_high_risk = score >= Decimal("50.0")
-            return RiskAssessmentOut(
-                is_high_risk=is_high_risk,
-                risk_score=score,
-                reason=reason
-            )
-        except (InvalidOperation, TypeError) as e:
-            log.error("risk_calc_error", error=str(e))
-            raise ValueError(f"Invalid decimal math in payload: {e}")
+    def assess_trade_risk(self, trade: TradeSchemaIn) -> RiskAssessmentOut:
+        score = Decimal("0")
+        reasons: list[str] = []
+        if calculate_notional(trade.price, trade.quantity) > self.MAX_SINGLE_TRADE_NOTIONAL:
+            score += Decimal("60")
+            reasons.append("Large trade volume")
+        if trade.quantity > Decimal("10000"):
+            score += Decimal("40")
+            reasons.append("Suspicious qty")
+        return RiskAssessmentOut(is_high_risk=score >= 50, risk_score=score, reason="; ".join(reasons) or None)

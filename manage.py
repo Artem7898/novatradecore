@@ -1,15 +1,12 @@
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
+
 import os
 import sys
 
 
-def main():
-    # 1. УКАЗАНИЕ НАСТРОЕК (Этого не было в прошлом ответе)
+def main() -> None:
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
-
-    # 2. ФИКС ЗАВИСАНИЯ ДЛЯ DJANGO 5 + PSYCOPG3
-    os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
     try:
         from django.core.management import execute_from_command_line

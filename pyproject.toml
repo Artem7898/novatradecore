@@ -10,7 +10,7 @@ dependencies = [
     "pydantic>=2.12,<3",
     "python-dotenv>=1.1,<2",
     "psycopg[binary]>=3.2.10,<4",
-    "redis>=6.4,<8",
+    "redis>=6.4,<9",
     "structlog>=25.4,<27",
 ]
 

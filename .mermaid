@@ -1,17 +1,23 @@
 sequenceDiagram
-    participant WS as Binance / Solana WS
-    participant API as Django ASGI (Uvicorn)
-    participant Pydantic as Pydantic v2 Validator
-    participant Svc as Risk Engine Service
-    participant DB as PostgreSQL (psycopg3)
-    participant Monitor as Grafana
+    participant Client as Service client
+    participant API as Django ASGI adapter
+    participant Redis as Shared rate-limit cache
+    participant App as IngestTrade application service
+    participant Store as Thread-sensitive ORM transaction
+    participant Domain as Decimal domain logic
+    participant DB as PostgreSQL
 
-    WS->>API: POST /api/v1/trades/ingest/
-    API->>Pydantic: Parse & Strict Validate
-    Pydantic-->>API: Validated TradeSchema
-    API->>Svc: assess_trade_risk()
-    Svc->>Svc: Decimal Math (P&L / AML Check)
-    Svc-->>API: RiskAssessment (Score, Reason)
-    API->>DB: await Trade.objects.acreate()
-    DB-->>Monitor: Raw SQL Metrics
-    API-->>WS: 201 Created (TradeSchemaOut)
+    Client->>API: POST with Bearer token and decimal strings
+    API->>API: Authenticate configured service token
+    API->>Redis: Atomic rate-limit counter
+    Redis-->>API: Allow or limit
+    API->>API: Validate finite positive values and supported quote
+    API->>App: Ingest validated trade
+    App->>Store: sync_to_async transaction boundary
+    Store->>Domain: Assess risk and calculate exact notional
+    Domain-->>Store: Risk assessment and notional
+    Store->>DB: Persist or check exchange_id + trade_id
+    DB-->>Store: New row, identical replay, or conflict
+    Store-->>App: Result
+    App-->>API: Result
+    API-->>Client: 201 new / 200 replay / 409 conflict

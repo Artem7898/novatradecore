@@ -1,1 +1,1 @@
-from config.settings.development import *  # noqa: F401, F403
+"""Settings packages: select config.settings.development, .test, or .production."""

@@ -1,213 +1,100 @@
-<div align="center">
-
 # NovaTradeCore
 
-[![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
-[![Django](https://img.shields.io/badge/django-5.0-green.svg)](https://www.djangoproject.com/)
-[![Type Checker](https://img.shields.io/badge/pyright-strict-red.svg)](https://github.com/microsoft/pyright)
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
+Сервис приёма нормализованных сделок и детерминированной оценки риска на Django 5.2 LTS, Python 3.12/3.13 и PostgreSQL. [English](README_EN.md).
 
-**Высокопроизводительный движок обработки сделок и оценки рисков для DeFi-экосистем**
+API проверяет сервисный Bearer-токен, ограничивает частоту запросов и валидирует денежные значения перед записью. Расчёты используют `Decimal`; числовые значения передаются в JSON строками. Приложение имеет ASGI-интерфейс, а транзакции Django ORM выполняются через `sync_to_async` в потоке. Брокер сообщений, WebSocket-алерты и автоматическая генерация TypeScript не реализованы.
 
-Строгая типизация · Decimal-арифметика · Нативная асинхронность · Zero-downtime
+## Запуск для разработки
 
-</div>
-
----
-
-## Обзор
-
-**NovaTradeCore** — это высокопроизводительный движок для обработки торговых данных и оценки рисков, разработанный для экосистем DeFi. Проект обеспечивает строгую типизацию, использует `Decimal` для всех финансовых расчётов (недопустимо использование `float` для P&L), и полностью асинхронную архитектуру — готов к нагрузкам high-frequency trading.
-
----
-
-## Ключевые архитектурные решения
-
-| Решение | Описание |
-|---------|----------|
-| **Строгая типизация** | `pyright --strict` + Pydantic v2 + Django ORM с `Decimal` везде. Никаких неявных `float` в P&L. |
-| **Нативная асинхронность (Django 5 + psycopg3)** | Полная асинхронная обработка запросов, асинхронные методы ORM, без узких мест `sync_to_async`. |
-| **Архитектура без Celery** | Фоновые задачи обрабатываются лёгкими асинхронными воркерами (`NovaTask`) + RabbitMQ/Kafka. |
-| **Умное управление кэшем** | Адаптивный TTL и политики вытеснения для горячих торговых символов. |
-| **Горячие миграции** | `CREATE INDEX CONCURRENTLY` и схемные изменения без простоя. |
-
----
-
-## Быстрый старт (Docker)
-
-Все сервисы (PostgreSQL, Redis, Grafana, Uvicorn) оркестрируются через Docker Compose.
-
-### 1. Клонирование и настройка окружения
+Нужны Docker с Compose v2, `make` и Python 3.12+. Для локальных проверок установите [uv](https://docs.astral.sh/uv/); версия CI — 0.12.23.
 
 ```bash
-git clone https://github.com/Artem7898/novatradecore
+git clone https://github.com/Artem7898/novatradecore.git
 cd novatradecore
-cp .env.example .env
+make init       # создаёт .env со случайными секретами; не перезаписывает существующий файл
+make up         # сервисы, сборка, отдельный release (migrate + collectstatic), затем приложение
 ```
 
-### 2. Сборка и запуск
+API доступен на `http://127.0.0.1:8000`; `/health/live/` проверяет процесс, `/health/ready/` — доступ к БД и кэшу. Compose для разработки использует reload и bind mount исходников. PostgreSQL и Redis не публикуются во внешнюю сеть. Пользователи админ-панели не создаются автоматически:
 
 ```bash
-docker compose up --build -d
+docker compose run --rm web python manage.py createsuperuser
 ```
 
-### 3. Доступ к сервисам
+`.env` содержит секреты и исключён из Git и Docker build context. `.env.example` описывает переменные, но не является готовой конфигурацией с общими паролями. Не передавайте `.env` в отчёты и журналы.
 
-| Сервис | URL | Учётные данные |
-|--------|-----|----------------|
-| API и админ-панель | [http://127.0.0.1:8000/admin/](http://127.0.0.1:8000/admin/) | Задаются в `.env` — измените сразу после запуска |
-| Grafana | [http://127.0.0.1:3000/](http://127.0.0.1:3000/) | `admin` / `admin` |
+## API
 
----
+`POST /api/v1/trades/ingest/`
 
-## Настройка мониторинга (Grafana)
+Заголовки: `Authorization: Bearer <service-token>` и `Content-Type: application/json`. Используйте значение токена из своей конфигурации `INGEST_API_TOKENS`; не записывайте его в исходники или историю команд.
 
-Grafana автоматически подключается к встроенному источнику данных PostgreSQL.
-
-### Добавление источника данных
-
-1. Перейдите в **Connections → Add data source → PostgreSQL**
-2. Заполните параметры:
-
-| Параметр | Значение |
-|----------|----------|
-| Host | `postgres:5432` |
-| Database | `novatrade` |
-| User | `nova` |
-| Password | `nova_pass` |
-
----
-
-## Примеры SQL-запросов
-
-### Запросы в секунду (RPS)
-
-```sql
-SELECT 
-  DATE_TRUNC('minute', created_at) AS time,
-  COUNT(id) AS requests
-FROM trades_trade 
-GROUP BY time 
-ORDER BY time;
+```json
+{
+  "symbol": "SOL/USDT",
+  "side": "BUY",
+  "price": "150.250000000",
+  "quantity": "10.500000000",
+  "exchange_id": "binance",
+  "trade_id": "example-trade-001"
+}
 ```
 
-### Доля высокорисковых сделок
+Контракт входных данных:
 
-```sql
-SELECT 
-  DATE_TRUNC('minute', created_at) AS time,
-  COUNT(CASE WHEN is_high_risk = true THEN 1 END) AS high_risk,
-  COUNT(id) AS total
-FROM trades_trade 
-GROUP BY time 
-ORDER BY time;
-```
+- `price` и `quantity` — JSON-строки с положительными конечными десятичными значениями: до 11 цифр до точки и до 9 после неё (20 всего). Экспоненциальная запись и ведущий знак не принимаются. JSON numbers, `NaN`, бесконечность и значения вне диапазона отклоняются.
+- `symbol` имеет формат `BASE/QUOTE`; поддерживаются котировки `USD`, `USDT`, `USDC`. Идентификаторы не могут быть пустыми или содержать пробелы; `exchange_id` — до 50, `trade_id` — до 100 символов.
+- `side` — `BUY` или `SELL`. Неизвестные поля отклоняются.
+- `(exchange_id, trade_id)` — ключ идемпотентности. Повтор должен содержать те же данные сделки.
 
----
+В ответе возвращаются `id`, `symbol`, `side`, `price`, `quantity`, `notional`, `quote_currency`, `risk` и `created_at`. Десятичные значения сериализуются строками. `notional = price × quantity` — стоимость сделки в валюте котировки, **не P&L**. Прибыль, себестоимость позиции и комиссии этот сервис не рассчитывает. Для порога риска USD/USDT/USDC принимаются в номинальном соотношении 1:1; это не FX-конвертация и не оценка отклонения stablecoin от привязки.
 
-## Нагрузочное тестирование (Locust)
+Текущие правила риска: стоимость строго больше 1 000 000 единиц котировки добавляет 60 баллов, количество строго больше 10 000 — 40 баллов. Сделка считается high risk при сумме от 50 баллов. Это простые пороги, которые следует согласовать с бизнес-правилами до использования в торговых решениях.
 
-В комплект входит `locustfile.py` для симуляции HFT-трафика.
+| HTTP | Значение |
+|---|---|
+| 201 | Новая сделка сохранена |
+| 200 | Идентичное событие уже сохранено |
+| 401 | Bearer-токен отсутствует или неверен |
+| 409 | Тот же ключ события содержит другие данные |
+| 413 | Тело запроса превышает 64 КиБ |
+| 422 | Некорректный JSON или нарушение входного контракта |
+| 429 | Превышен лимит клиента; см. `Retry-After` |
+| 503 | Зависимость сервиса недоступна |
 
-### Запуск тестирования
+## Окружение и проверки
+
+Зависимости фиксируются в `uv.lock`; `package-lock.json` для Python не используется. `dev` — группа по умолчанию, `load` устанавливается отдельно.
 
 ```bash
-# 1. Запустите стек
-docker compose up -d
-
-# 2. Установите Locust (или запустите внутри контейнера)
-pip install locust
-locust -f locustfile.py --host http://127.0.0.1:8000
+uv sync --frozen
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen pyright
+uv run --frozen pytest --cov --cov-report=term-missing
+uv run --frozen python manage.py makemigrations --check --dry-run
+uv run --frozen pre-commit install
 ```
 
-3. Откройте [http://localhost:8089](http://localhost:8089)
-4. Укажите количество пользователей (например, 50) и время разгона (10 секунд)
+Тестовые настройки по умолчанию используют изолированную SQLite БД и локальный кэш. Они подходят для быстрых проверок; PostgreSQL-специфичное поведение проверяется отдельно. Для локальной PostgreSQL задайте `TEST_DATABASE_ENGINE=postgresql`, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`. Тестовый пользователь БД должен иметь право создавать тестовую базу. CI запускает тесты с PostgreSQL 16 и Redis 7 на Python 3.12/3.13, проверяет типы, форматирование, миграции, сборку wheel и Docker, зависимости и покрытие.
 
-**Ожидаемый результат:** 200–500 RPS на среднем оборудовании без заметной деградации задержек.
-
----
-
-## Локальная установка (без Docker)
-
-Если вы предпочитаете запуск без Docker (потребуется локальный PostgreSQL):
+Обновление зависимостей выполняйте через `uv lock`, затем повторяйте проверки. Для аудита всех зафиксированных зависимостей, включая test/load:
 
 ```bash
-pip install -e ".[dev]"
-cp .env.example .env
-# Отредактируйте .env, указав ваш локальный PostgreSQL (например, 127.0.0.1)
-python manage.py migrate --skip-checks
-python manage.py runserver 0.0.0.0:8000
+uv export --frozen --all-groups --no-emit-project --format requirements-txt --output-file /tmp/novatrade-requirements.txt
+uv run --frozen pip-audit --disable-pip --no-deps --require-hashes -r /tmp/novatrade-requirements.txt
 ```
 
----
+## Production и измерения
 
-## Качество кода (Pyright Strict)
+Используйте отдельный `docker-compose.production.yml`, TLS на доверенном reverse proxy и собственные секреты. Production-настройки требуют явных `SECRET_KEY`, `ALLOWED_HOSTS`, `INGEST_API_TOKENS`, пароля БД и `REDIS_URL`. Миграции выполняются отдельным Compose-сервисом `release` с ролью владельца таблиц до запуска приложения; runtime-роль БД ограничена DML. Для production также нужны отдельные `MIGRATION_DATABASE_USER`, `MIGRATION_DATABASE_PASSWORD` и `POSTGRES_ADMIN_PASSWORD`. Существующий PostgreSQL volume требует предварительного provisioning ролей. Обновление выполняется в окне обслуживания: остановите ingestion и все старые реплики до миграции `0003`; helper останавливает только локальный Compose web. Записи сделок в admin доступны только для чтения. [Runbook](docs/operations.md) описывает запуск, ротацию ключей, резервные копии и ограничения отката.
 
-Обеспечение использования `Decimal` везде и выявление типовых ошибок:
+Для нагрузки установите `uv sync --frozen --group load` и используйте `make benchmark`; для удалённого стенда задайте `BENCHMARK_TOKEN`; локально скрипт также умеет читать ключ `local-ingestor` из собственной `.env`. Параметры, формат результатов и порядок измерения описаны в [runbook](docs/operations.md#нагрузочные-измерения). Пропускная способность зависит от окружения и должна измеряться с учётом ошибок и задержек.
 
-```bash
-pyright .
-```
+Исторический CSV `Locust_2026-05-01-14h15_…csv` оставлен для воспроизводимости аудита: 33 711 запросов, 15 837 ошибок (46,98%), p95 270 мс. Он относится к прежней реализации и не подтверждает производительность текущей версии. Обещаний HFT, zero-downtime или 15K записей/с проект не даёт.
 
-**Ожидаемый результат:** `0 errors, 0 warnings`. Любое использование `float` в P&L или метриках риска запрещено.
-
----
-
-## Тестирование
-
-```bash
-pytest -v --cov=trades --cov-report=term-missing
-```
-
-Покрытие включает тесты асинхронных эндпоинтов, верификацию Decimal-арифметики и правила риск-движка.
-
----
-
-## Рекомендации для production
-
-### 1. Строгая валидация Decimal
-
-Всегда используйте `Decimal` от wire до базы данных.
-
-Pydantic `TradeSchemaIn` валидирует входные данные и отклоняет любые числовые `float`.
-
-### 2. Горячие миграции
-
-Предполагается, что таблица `trades_trade` может превысить 500 млн строк.
-Никогда не используйте стандартную миграцию с `LOCK TABLE`. Вместо этого используйте `atomic = False` и ручной SQL:
-
-```sql
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_trades_symbol_created 
-ON trades_trade (symbol, created_at DESC NULLS LAST);
-```
-
-`CONCURRENTLY` позволяет избежать простоя и блокировок.
-
-### 3. Асинхронные подключения к БД
-
-В `settings.py` настройте `CONN_MAX_AGE` и health-checks:
-
-```python
-"CONN_MAX_AGE": 60,
-"CONN_HEALTH_CHECKS": True,
-```
-
-Это поддерживает пулы соединений psycopg3 в активном состоянии и предотвращает переподключения под нагрузкой.
-
----
+[Архитектура](architecture.mmd) · [План модернизации и внешние действия](docs/modernization.md)
 
 ## Лицензия
 
-**Proprietary** — все права защищены.
-#### Автор проекта Артем Алимпиев 
-#### https://orcid.org/0009-0007-6740-7242 
-
-Это программное обеспечение предназначено только для авторизованного использования. Распространение или реверс-инжиниринг запрещены.
-
----
-
-<div align="center">
-
-*Построено для высокочастотной обработки DeFi-сделок. Никаких float. Никакого простоя.*
-
-</div>
+**Proprietary — все права защищены.** Автор: Артем Алимпиев, [ORCID](https://orcid.org/0009-0007-6740-7242). Использование и распространение требуют разрешения правообладателя.

@@ -1,9 +1,15 @@
-from django.contrib import admin
-from django.urls import path, include
 from django.conf import settings
-from django.conf.urls.static import static
+
+# Django's helper exposes an untyped default view in its third-party stub.
+from django.conf.urls.static import static  # pyright: ignore[reportUnknownVariableType]
+from django.contrib import admin
+from django.urls import include, path
+
+from config.health import live, ready
 
 urlpatterns = [
+    path("health/live/", live, name="health_live"),
+    path("health/ready/", ready, name="health_ready"),
     path("admin/", admin.site.urls),
     path("api/v1/trades/", include("trades.api.v1")),
 ]

@@ -1,0 +1,24 @@
+name: Scheduled dependency audit
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.23"
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: |
+          uv export --frozen --all-groups --no-emit-project --format requirements-txt --output-file locked-requirements.txt
+          uv run --frozen pip-audit --disable-pip --no-deps --require-hashes -r locked-requirements.txt

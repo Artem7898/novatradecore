@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Python ${{ matrix.python }} / PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
+        env:
+          POSTGRES_DB: novatrade_test
+          POSTGRES_USER: nova
+          POSTGRES_PASSWORD: ci-test-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nova -d novatrade_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      TEST_DATABASE_ENGINE: postgresql
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: novatrade_test
+      DATABASE_USER: nova
+      DATABASE_PASSWORD: ci-test-password
+      REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.23"
+          enable-cache: true
+      - name: Install locked environment
+        run: uv sync --frozen --python "${{ matrix.python }}"
+      - name: Verify matrix interpreter
+        run: |
+          uv run --frozen python -c 'import os, sys; actual = f"{sys.version_info.major}.{sys.version_info.minor}"; expected = os.environ["UV_PYTHON"]; assert actual == expected, (actual, expected); print(f"Python {actual} matches the CI matrix")'
+      - name: Lint and format
+        run: |
+          uv run --frozen ruff check .
+          uv run --frozen ruff format --check .
+      - name: Type check
+        run: uv run --frozen pyright
+      - name: Check migration state
+        run: uv run --frozen python manage.py makemigrations --check --dry-run
+      - name: Test with PostgreSQL and measure coverage
+        run: uv run --frozen pytest --cov --cov-report=term-missing --cov-report=xml
+      - name: Build and inspect wheel
+        run: |
+          uv build --wheel --out-dir dist
+          uv run --frozen python .github/scripts/verify_wheel.py
+      - name: Scan application code
+        run: uv run --frozen bandit -c pyproject.toml -r trades config
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: coverage-python-${{ matrix.python }}
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  dependencies:
+    name: Locked dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.12.23"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Audit every locked runtime, test and load dependency
+        run: |
+          uv export --frozen --all-groups --no-emit-project --format requirements-txt --output-file locked-requirements.txt
+          uv run --frozen pip-audit --disable-pip --no-deps --require-hashes -r locked-requirements.txt
+
+  image:
+    name: Container build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker build --tag novatradecore:ci .

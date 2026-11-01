@@ -1,29 +1,14 @@
-graph TD
-    subgraph "Data Streams"
-        A[Solana RPC WS] --> D
-        B[Binance WS] --> D
-    end
-
-    subgraph "Django Nova Core"
-        D[NovaTask: Async Normalizer] --> E[Pydantic v2 Validator]
-        E --> F[API Router + slowapi]
-        F --> G[Dependency Injector]
-        G --> H[Risk Engine Service]
-        G --> I[Cache Manager]
-    end
-
-    subgraph "Data Layer"
-        H --> J[(PostgreSQL 500M+ Rows)]
-        I --> K[(Redis: Smart Cache)]
-        J -. CONCURRENTLY .-> L[Hot Migrations]
-    end
-
-    subgraph "Clients & Tooling"
-        F --> M[OpenAPI Schema]
-        M -->|Auto-generation| N[TypeScript Frontend]
-        F -->|WebSocket| O[Risk Alerts WS]
-    end
-
-    style D fill:#f9f,stroke:#333,stroke-width:2px
-    style J fill:#ff9,stroke:#333,stroke-width:4px
-    style K fill:#9ff,stroke:#333,stroke-width:2px
+flowchart TD
+    Client[Authenticated service client] -->|HTTPS via trusted reverse proxy| HTTP[Django ASGI HTTP adapter]
+    HTTP --> Auth[Bearer token authentication]
+    Auth --> Limit[Per-client fixed-window rate limit]
+    Limit --> Cache[(Redis in production)]
+    Limit --> Schema[Pydantic input validation]
+    Schema --> UseCase[IngestTrade application service]
+    UseCase --> Domain[Pure Decimal risk and notional calculations]
+    UseCase --> Bridge[sync_to_async thread-sensitive boundary]
+    Bridge --> ORM[Django ORM transaction and idempotency]
+    ORM --> DB[(PostgreSQL)]
+    HTTP --> Response[JSON response with Decimal strings]
+    Release[Separate release command] --> Migrate[Django migrations]
+    Migrate --> DB

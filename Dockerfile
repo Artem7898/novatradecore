@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 FROM ghcr.io/astral-sh/uv:0.12.23 AS uv
-FROM python:3.12.14-slim-bookworm AS builder
+FROM python:3.12.16-slim-bookworm AS builder
 
 ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_NO_CACHE=1
 COPY --from=uv /uv /uvx /usr/local/bin/
@@ -19,7 +19,7 @@ RUN --mount=type=secret,id=proxy_ca --mount=type=secret,id=system_ca \
     elif [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
     uv sync --frozen --no-dev --no-editable
 
-FROM python:3.12.14-slim-bookworm AS runtime
+FROM python:3.12.16-slim-bookworm AS runtime
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

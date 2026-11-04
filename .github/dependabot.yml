@@ -13,3 +13,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Changing Python's minor line requires coordinated project and CI validation.
+    # Keep automatic image updates within the currently selected patch series.
+    ignore:
+      - dependency-name: python
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
